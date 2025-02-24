@@ -720,6 +720,7 @@ func MergePodSpecs(basePodSpec *v1.PodSpec, podSpec *v1.PodSpec, primaryContaine
 	}
 
 	// merge PodTemplate containers
+    hasPrimaryContainer := false
 	var mergedContainers []v1.Container
 	for _, container := range podSpec.Containers {
 		// if applicable start with defaultContainerTemplate
@@ -730,6 +731,7 @@ func MergePodSpecs(basePodSpec *v1.PodSpec, podSpec *v1.PodSpec, primaryContaine
 
 		// if applicable merge with primaryContainerTemplate
 		if container.Name == primaryContainerName && primaryContainerTemplate != nil {
+            hasPrimaryContainer = true
 			if mergedContainer == nil {
 				mergedContainer = primaryContainerTemplate.DeepCopy()
 			} else {
@@ -751,15 +753,16 @@ func MergePodSpecs(basePodSpec *v1.PodSpec, podSpec *v1.PodSpec, primaryContaine
 
 			mergedContainers = append(mergedContainers, *mergedContainer)
 		}
-	}
+    }
 
-	if mergedContainers == nil {
-		mergedContainers = basePodSpec.Containers
-	}
+    if !hasPrimaryContainer {
+        mergedContainers = append(mergedContainers, *primaryContainerTemplate)
+    }
 
 	mergedPodSpec.Containers = mergedContainers
 
 	// merge PodTemplate init containers
+    hasPrimaryInitContainer := false
 	var mergedInitContainers []v1.Container
 	for _, initContainer := range podSpec.InitContainers {
 		// if applicable start with defaultContainerTemplate
@@ -770,6 +773,7 @@ func MergePodSpecs(basePodSpec *v1.PodSpec, podSpec *v1.PodSpec, primaryContaine
 
 		// if applicable merge with primaryInitContainerTemplate
 		if initContainer.Name == primaryInitContainerName && primaryInitContainerTemplate != nil {
+            hasPrimaryInitContainer = true
 			if mergedInitContainer == nil {
 				mergedInitContainer = primaryInitContainerTemplate.DeepCopy()
 			} else {
@@ -793,9 +797,9 @@ func MergePodSpecs(basePodSpec *v1.PodSpec, podSpec *v1.PodSpec, primaryContaine
 		}
 	}
 
-	if mergedInitContainers == nil {
-		mergedInitContainers = basePodSpec.InitContainers
-	}
+    if !hasPrimaryInitContainer {
+        mergedInitContainers = append(mergedInitContainers, *primaryInitContainerTemplate)
+    }
 
 	mergedPodSpec.InitContainers = mergedInitContainers
 
