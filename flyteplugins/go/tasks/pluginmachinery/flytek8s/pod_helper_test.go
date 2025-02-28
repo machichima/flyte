@@ -2151,6 +2151,12 @@ func TestMergePodSpecs(t *testing.T) {
 	primaryContainerTemplate := v1.Container{
 		Name:                   primaryContainerTemplateName,
 		TerminationMessagePath: "/dev/primary-termination-log",
+        VolumeMounts: []v1.VolumeMount{
+            {
+                Name:      "nccl",
+                MountPath: "abc",
+            },
+        },
 	}
 
 	defaultInitContainerTemplate := v1.Container{
@@ -2161,16 +2167,28 @@ func TestMergePodSpecs(t *testing.T) {
 	primaryInitContainerTemplate := v1.Container{
 		Name:                   primaryInitContainerTemplateName,
 		TerminationMessagePath: "/dev/primary-init-termination-log",
+        VolumeMounts: []v1.VolumeMount{
+            {
+                Name:      "nccl",
+                MountPath: "abc",
+            },
+        },
 	}
 
 	podTemplateSpec := v1.PodSpec{
 		Containers: []v1.Container{
 			defaultContainerTemplate,
 			primaryContainerTemplate,
+			v1.Container{
+				Name: "bar1",
+			},
 		},
 		InitContainers: []v1.Container{
 			defaultInitContainerTemplate,
 			primaryInitContainerTemplate,
+			v1.Container{
+				Name: "bar1-init",
+			},
 		},
 		HostNetwork: true,
 		NodeSelector: map[string]string{
@@ -2198,27 +2216,218 @@ func TestMergePodSpecs(t *testing.T) {
 	// validate an appended array
 	assert.Equal(t, len(podTemplateSpec.Tolerations)+len(podSpec.Tolerations), len(mergedPodSpec.Tolerations))
 
+    // primary should merge, others should append
+    assert.Equal(t, 3, len(mergedPodSpec.Containers))
+
 	// validate primary container
 	primaryContainer := mergedPodSpec.Containers[0]
 	assert.Equal(t, podSpec.Containers[0].Name, primaryContainer.Name)
 	assert.Equal(t, primaryContainerTemplate.TerminationMessagePath, primaryContainer.TerminationMessagePath)
-	assert.Equal(t, 1, len(primaryContainer.VolumeMounts))
+    // VolumeMounts should merge for primary container
+	assert.Equal(t, 2, len(primaryContainer.VolumeMounts))
 
-	// validate default container
-	defaultContainer := mergedPodSpec.Containers[1]
-	assert.Equal(t, podSpec.Containers[1].Name, defaultContainer.Name)
-	assert.Equal(t, defaultContainerTemplate.TerminationMessagePath, defaultContainer.TerminationMessagePath)
+	// validate other container in podSpec
+	podSpecContainer := mergedPodSpec.Containers[1]
+	assert.Equal(t, podSpec.Containers[1].Name, podSpecContainer.Name)
+    // ensure the container merged with default
+	assert.Equal(t, defaultContainerTemplate.TerminationMessagePath, podSpecContainer.TerminationMessagePath)
+
+	// validate other container in podTemplateSpec
+    // TODO: the default will not merge with this, think if needed
+	podTemplateSpecContainer := mergedPodSpec.Containers[2]
+	assert.Equal(t, podTemplateSpec.Containers[2].Name, podTemplateSpecContainer.Name)
+    // ensure the container merged with default
+	assert.Equal(t, defaultContainerTemplate.TerminationMessagePath, podTemplateSpecContainer.TerminationMessagePath)
 
 	// validate primary init container
 	primaryInitContainer := mergedPodSpec.InitContainers[0]
 	assert.Equal(t, podSpec.InitContainers[0].Name, primaryInitContainer.Name)
 	assert.Equal(t, primaryInitContainerTemplate.TerminationMessagePath, primaryInitContainer.TerminationMessagePath)
-	assert.Equal(t, 1, len(primaryInitContainer.VolumeMounts))
+    // VolumeMounts should merge for primary init container
+	assert.Equal(t, 2, len(primaryInitContainer.VolumeMounts))
 
 	// validate default init container
-	defaultInitContainer := mergedPodSpec.InitContainers[1]
-	assert.Equal(t, podSpec.InitContainers[1].Name, defaultInitContainer.Name)
-	assert.Equal(t, defaultInitContainerTemplate.TerminationMessagePath, defaultInitContainer.TerminationMessagePath)
+	podSpecInitContainer := mergedPodSpec.InitContainers[1]
+	assert.Equal(t, podSpec.InitContainers[1].Name, podSpecInitContainer.Name)
+	assert.Equal(t, defaultInitContainerTemplate.TerminationMessagePath, podSpecInitContainer.TerminationMessagePath)
+
+	// validate other container in podTemplateSpec
+	podTemplateSpecInitContainer := mergedPodSpec.InitContainers[2]
+	assert.Equal(t, podTemplateSpec.InitContainers[2].Name, podTemplateSpecInitContainer.Name)
+    // ensure the init container merged with default
+	assert.Equal(t, defaultInitContainerTemplate.TerminationMessagePath, podTemplateSpecInitContainer.TerminationMessagePath)
+}
+
+func dummyContainer(name string) v1.Container {
+	return v1.Container{
+		Name: name,
+		VolumeMounts: []v1.VolumeMount{
+			{
+				Name:      "vm-" + name,
+				MountPath: "abc",
+			},
+		},
+		Env: []v1.EnvVar{
+			{Name: "EnvVar-" + name, Value: "EnvVal"},
+		},
+	}
+
+}
+
+func TestMergePodSpecsDiffPrimaryContainerName(t *testing.T) {
+
+	defaultContainerTemplate := v1.Container{
+		Name:                   defaultContainerTemplateName,
+		TerminationMessagePath: "/dev/default-termination-log",
+	}
+
+	defaultInitContainerTemplate := v1.Container{
+		Name:                   defaultInitContainerTemplateName,
+		TerminationMessagePath: "/dev/default-init-termination-log",
+	}
+
+	basePodSpec := v1.PodSpec{
+		Containers: []v1.Container{
+            dummyContainer("primary"),
+            dummyContainer("not-primary"),
+            defaultContainerTemplate,
+		},
+		InitContainers: []v1.Container{
+            dummyContainer("primary-init"),
+            dummyContainer("not-primary-init"),
+            defaultInitContainerTemplate,
+		},
+		Tolerations: []v1.Toleration{
+			v1.Toleration{
+				Key: "bar",
+			},
+			v1.Toleration{
+				Key: "baz",
+			},
+		},
+	}
+
+	podSpec := v1.PodSpec{
+		Containers: []v1.Container{
+            dummyContainer("primary-new"),
+            dummyContainer("not-primary-new"),
+		},
+		InitContainers: []v1.Container{
+            dummyContainer("primary-init-new"),
+            dummyContainer("not-primary-init-new"),
+		},
+		Tolerations: []v1.Toleration{
+			v1.Toleration{
+				Key: "bar-new",
+			},
+			v1.Toleration{
+				Key: "baz-new",
+			},
+		},
+	}
+
+    // podSpec with same primary container as basePodSpec
+	podSpecSamePrimary := v1.PodSpec{
+		Containers: []v1.Container{
+            dummyContainer("primary"),
+            dummyContainer("not-primary-new"),
+		},
+		InitContainers: []v1.Container{
+            dummyContainer("primary-init"),
+            dummyContainer("not-primary-init-new"),
+		},
+		Tolerations: []v1.Toleration{
+			v1.Toleration{
+				Key: "bar-new",
+			},
+			v1.Toleration{
+				Key: "baz-new",
+			},
+		},
+	}
+
+    // merge with primary container name in podSpec
+	mergedPodSpecNotBasePrimary, err := MergePodSpecs(&basePodSpec, &podSpec, "primary-new", "primary-init-new")
+	assert.Nil(t, err)
+
+    // merge with primary container name in basePodSpec
+	mergedPodSpecBasePrimary, err := MergePodSpecs(&basePodSpec, &podSpec, "primary", "primary-init")
+	assert.Nil(t, err)
+
+    // two podSpec all has contianer with nname "primary" and "primary-init"
+	mergedPodSpecBothPrimary, err := MergePodSpecs(&basePodSpec, &podSpecSamePrimary, "primary", "primary-init")
+	assert.Nil(t, err)
+
+	// tolerations should always merged
+    assert.Equal(t, len(basePodSpec.Tolerations)+len(podSpec.Tolerations), len(mergedPodSpecNotBasePrimary.Tolerations))
+    assert.Equal(t, len(basePodSpec.Tolerations)+len(podSpec.Tolerations), len(mergedPodSpecBasePrimary.Tolerations))
+    assert.Equal(t, len(basePodSpec.Tolerations)+len(podSpec.Tolerations), len(mergedPodSpecBothPrimary.Tolerations))
+
+    // only append, no container merged
+    assert.Equal(t, 4, len(mergedPodSpecNotBasePrimary.Containers))
+    assert.Equal(t, 4, len(mergedPodSpecBasePrimary.Containers))
+    // primary should merge, others should append
+    assert.Equal(t, 3, len(mergedPodSpecBothPrimary.Containers))
+
+
+    // check all the containers appended and merged with default template
+    expectedContainerNames := []string{
+        "primary-new",   // From podSpec
+        "not-primary-new", // From podSpec
+        "primary",       // From basePodSpec
+        "not-primary",   // From basePodSpec
+    }
+    for i, container := range mergedPodSpecNotBasePrimary.Containers {
+        assert.Equal(t, expectedContainerNames[i], container.Name)
+        assert.Equal(t, 1, len(container.VolumeMounts))
+        assert.Equal(t, 1, len(container.Env))
+        assert.Equal(t, defaultContainerTemplate.TerminationMessagePath, container.TerminationMessagePath)
+    }
+    for i, container := range mergedPodSpecBasePrimary.Containers {
+        assert.Equal(t, expectedContainerNames[i], container.Name)
+        assert.Equal(t, 1, len(container.VolumeMounts))
+        assert.Equal(t, 1, len(container.Env))
+        assert.Equal(t, defaultContainerTemplate.TerminationMessagePath, container.TerminationMessagePath)
+    }
+
+    // check attribute in primary contianer merged
+    primaryContainer := mergedPodSpecBothPrimary.Containers[0]
+    assert.Equal(t, basePodSpec.Containers[0].Name, primaryContainer.Name)
+    assert.Equal(t, 2, len(primaryContainer.VolumeMounts))
+    assert.Equal(t, 2, len(primaryContainer.Env))
+    assert.Equal(t, defaultContainerTemplate.TerminationMessagePath, primaryContainer.TerminationMessagePath)
+
+    // only append, no container merged
+    assert.Equal(t, 4, len(mergedPodSpecNotBasePrimary.InitContainers))
+    assert.Equal(t, 4, len(mergedPodSpecBasePrimary.InitContainers))
+    // primary should merge, others should append
+    assert.Equal(t, 3, len(mergedPodSpecBothPrimary.InitContainers))
+
+    // check all the init containers appended and merged with default template
+    expectedInitContainerNames := []string{
+        "primary-init-new",   // From podSpec
+        "not-primary-init-new", // From podSpec
+        "primary-init",       // From basePodSpec
+        "not-primary-init",   // From basePodSpec
+    }
+    for i, container := range mergedPodSpecNotBasePrimary.InitContainers {
+        assert.Equal(t, expectedInitContainerNames[i], container.Name)
+        assert.Equal(t, 1, len(container.VolumeMounts))
+        assert.Equal(t, 1, len(container.Env))
+        assert.Equal(t, defaultInitContainerTemplate.TerminationMessagePath, container.TerminationMessagePath)
+    }
+    for i, container := range mergedPodSpecBasePrimary.InitContainers {
+        assert.Equal(t, expectedInitContainerNames[i], container.Name)
+        assert.Equal(t, 1, len(container.VolumeMounts))
+        assert.Equal(t, 1, len(container.Env))
+        assert.Equal(t, defaultInitContainerTemplate.TerminationMessagePath, container.TerminationMessagePath)
+    }
+
+    // check attribute in init primary contianer merged
+    initPrimaryContainer := mergedPodSpecBothPrimary.InitContainers[0]
+    assert.Equal(t, basePodSpec.InitContainers[0].Name, initPrimaryContainer.Name)
+    assert.Equal(t, 2, len(initPrimaryContainer.VolumeMounts))
+    assert.Equal(t, 2, len(initPrimaryContainer.Env))
 }
 
 func TestAddFlyteCustomizationsToContainer_SetConsoleUrl(t *testing.T) {
