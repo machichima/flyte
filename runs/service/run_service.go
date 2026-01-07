@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 
@@ -421,9 +422,21 @@ func (s *RunService) WatchActionDetails(
 		return connect.NewError(connect.CodeNotFound, err)
 	}
 
+	// Build action details from the database model
+	// Default to QUEUED if phase is empty or invalid
+	actionPhase := common.ActionPhase_ACTION_PHASE_QUEUED
+	if action.Phase != "" {
+		if phaseValue, ok := common.ActionPhase_value[action.Phase]; ok {
+			actionPhase = common.ActionPhase(phaseValue)
+		}
+	}
+
 	resp := &workflow.WatchActionDetailsResponse{
 		Details: &workflow.ActionDetails{
-			// Would populate from action model
+			Id: req.Msg.ActionId,
+			Status: &workflow.ActionStatus{
+				Phase: actionPhase,
+			},
 		},
 	}
 
@@ -431,7 +444,7 @@ func (s *RunService) WatchActionDetails(
 		return err
 	}
 
-	logger.Infof(ctx, "Sent initial action details for: %s", action.Name)
+	logger.Infof(ctx, "Sent initial action details for: %s (phase: %s)", action.Name, action.Phase)
 
 	// TODO: Implement actual streaming
 	<-ctx.Done()
@@ -580,14 +593,16 @@ func (s *RunService) WatchClusterEvents(
 
 // buildInputURI generates the input URI for the root action
 func buildInputURI(run *models.Run) string {
-	// TODO: In production, this should be a real storage path (e.g., s3://bucket/inputs/org/project/domain/run)
-	return ""
+	// Build storage path for inputs: s3://bucket/inputs/org/project/domain/run/inputs.pb
+	return fmt.Sprintf("s3://flyte-data/inputs/%s/%s/%s/%s/inputs.pb",
+		run.Org, run.Project, run.Domain, run.Name)
 }
 
 // buildRunOutputBase generates the output base path for the run
 func buildRunOutputBase(run *models.Run) string {
-	// TODO: In production, this should be a real storage path (e.g., s3://bucket/outputs/org/project/domain/run)
-	return ""
+	// Build storage path base for outputs: s3://bucket/outputs/org/project/domain/run
+	return fmt.Sprintf("s3://flyte-data/outputs/%s/%s/%s/%s",
+		run.Org, run.Project, run.Domain, run.Name)
 }
 
 // convertRunToProto converts a repository Run to a proto Run

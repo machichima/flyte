@@ -112,7 +112,7 @@ func (r *actionRepo) CreateRun(ctx context.Context, req *workflow.CreateRunReque
 		Domain:           runID.Domain,
 		Name:             runID.Name,
 		ParentActionName: nil, // NULL for root actions/runs
-		Phase:            "PHASE_QUEUED",
+		Phase:            "ACTION_PHASE_QUEUED",
 		ActionSpec:       datatypes.JSON(actionSpecBytes),
 		ActionDetails:    datatypes.JSON([]byte("{}")), // Empty details initially
 	}
