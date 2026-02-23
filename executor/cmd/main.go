@@ -56,6 +56,7 @@ var (
 	setupLog       = ctrl.Log.WithName("setup")
 	cfgFile        string
 	configAccessor stdconfig.Accessor
+	zapOpts        = zap.Options{Development: true}
 )
 
 func init() {
@@ -63,7 +64,9 @@ func init() {
 	utilruntime.Must(flyteorgv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 
-	// Add go flags (for zap logger) to pflag
+	// Register zap flags (--zap-devel, --zap-log-level, etc.) into flag.CommandLine first,
+	// then bridge to pflag so cobra can expose them.
+	zapOpts.BindFlags(flag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
 	// Parse empty to avoid errors from Go's flag package
@@ -83,6 +86,8 @@ func newRootCmd() *cobra.Command {
 	}
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.flyte/config.yaml)")
+	// Merge zap flags (registered in init()) into cobra so --help shows them and cobra parses them.
+	rootCmd.PersistentFlags().AddFlagSet(pflag.CommandLine)
 	configAccessor = viper.NewAccessor(stdconfig.Options{StrictMode: false})
 	configAccessor.InitializePflags(rootCmd.PersistentFlags())
 
@@ -116,10 +121,7 @@ func initConfig(cmd *cobra.Command) error {
 func run() error {
 	cfg := config.GetConfig()
 
-	opts := zap.Options{
-		Development: true,
-	}
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
 
 	var tlsOpts []func(*tls.Config)
 
